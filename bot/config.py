@@ -4,9 +4,9 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     telegram_bot_token: str
     admin_user_ids: list[int] = []
-    anthropic_api_key: str
-    claude_model: str = "claude-sonnet-4-20250514"
-    claude_max_tokens: int = 4096
+    replicate_api_token: str
+    replicate_model: str = "anthropic/claude-4.5-sonnet"
+    replicate_max_tokens: int = 4096
     digest_day: int = 6
     digest_hour: int = 20
     digest_timezone: str = "Europe/Moscow"

@@ -16,7 +16,7 @@
 - [ ] `bot/main.py` — точка входа, запуск бота
 - [ ] Тест: бот запускается, сохраняет сообщения в БД
 
-## Фаза 3: Интеграция с Claude API
+## Фаза 3: Интеграция с Replicate API
 - [ ] `bot/services/analyzer.py` — промпт, запрос к API, парсинг JSON
 - [ ] `bot/utils/text.py` — разбиение на чанки, очистка текста
 - [ ] Двухэтапный анализ для больших объёмов
@@ -29,12 +29,12 @@
 - [ ] `bot/handlers/commands.py` — /digest, /status, /help, /sources
 - [ ] `bot/services/scheduler.py` — APScheduler, еженедельная отправка
 
-## Фаза 6: Тесты + Docker + README
+## Фаза 6: Тесты + Railway + README
 - [ ] `tests/conftest.py` — фикстуры
 - [ ] `tests/test_repository.py`
 - [ ] `tests/test_analyzer.py`
 - [ ] `tests/test_digest.py`
-- [ ] `Dockerfile` + `docker-compose.yml`
+- [ ] `railway.toml`
 - [ ] `README.md`
 
 ## Фаза 7: Расширение на каналы

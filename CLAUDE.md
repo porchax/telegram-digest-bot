@@ -2,17 +2,17 @@
 
 ## Описание проекта
 
-Telegram-бот для автоматического формирования еженедельных дайджестов группового чата. Бот находится в группе (~10 человек), читает все сообщения, сохраняет их в БД, и раз в неделю генерирует структурированный отчёт с помощью Claude API, публикуя его в группу.
+Telegram-бот для автоматического формирования еженедельных дайджестов группового чата. Бот находится в группе (~10 человек), читает все сообщения, сохраняет их в БД, и раз в неделю генерирует структурированный отчёт с помощью Replicate API (Claude 4.5 Sonnet), публикуя его в группу.
 
 ## Стек технологий
 
 - **Язык:** Python 3.11+
 - **Telegram:** aiogram 3.x (асинхронный фреймворк)
 - **БД:** SQLite через aiosqlite (асинхронный драйвер)
-- **LLM:** Anthropic Claude API (claude-sonnet-4-20250514)
+- **LLM:** Replicate API (Claude 4.5 Sonnet)
 - **Планировщик:** APScheduler (для еженедельной генерации дайджеста)
 - **Конфигурация:** pydantic-settings + .env файл
-- **Деплой:** Docker (опционально)
+- **Деплой:** Railway
 
 ## Структура проекта
 
@@ -24,8 +24,7 @@ telegram-digest-bot/
 ├── .gitignore
 ├── requirements.txt
 ├── pyproject.toml
-├── Dockerfile
-├── docker-compose.yml
+├── railway.toml
 ├── bot/
 │   ├── __init__.py
 │   ├── main.py              # Точка входа, запуск бота
@@ -42,7 +41,7 @@ telegram-digest-bot/
 │   ├── services/
 │   │   ├── __init__.py
 │   │   ├── collector.py      # Логика сбора и нормализации сообщений
-│   │   ├── analyzer.py       # Взаимодействие с Claude API, промпты
+│   │   ├── analyzer.py       # Взаимодействие с Replicate API, промпты
 │   │   ├── digest.py         # Формирование и отправка дайджеста
 │   │   └── scheduler.py      # Планировщик еженедельной отправки
 │   └── utils/
@@ -65,7 +64,7 @@ telegram-digest-bot/
 3. Handler → collector.py (нормализация) → repository.py (сохранение в SQLite)
 4. По расписанию (воскресенье 20:00) или по команде /digest:
    4a. repository.py → получить сообщения за неделю
-   4b. analyzer.py → сформировать промпт → отправить в Claude API
+   4b. analyzer.py → сформировать промпт → отправить в Replicate API
    4c. digest.py → отформатировать ответ → отправить в группу
 ```
 
@@ -118,10 +117,10 @@ CREATE INDEX idx_messages_date ON messages(date);
 TELEGRAM_BOT_TOKEN=your_bot_token_here
 ADMIN_USER_IDS=123456789,987654321   # ID администраторов бота (через запятую)
 
-# Anthropic
-ANTHROPIC_API_KEY=your_api_key_here
-CLAUDE_MODEL=claude-sonnet-4-20250514
-CLAUDE_MAX_TOKENS=4096
+# Replicate
+REPLICATE_API_TOKEN=your_replicate_token_here
+REPLICATE_MODEL=anthropic/claude-4.5-sonnet
+REPLICATE_MAX_TOKENS=4096
 
 # Дайджест
 DIGEST_DAY=6                # День недели (0=пн, 6=вс)
@@ -148,9 +147,9 @@ from pydantic_settings import BaseSettings
 class Settings(BaseSettings):
     telegram_bot_token: str
     admin_user_ids: list[int] = []
-    anthropic_api_key: str
-    claude_model: str = "claude-sonnet-4-20250514"
-    claude_max_tokens: int = 4096
+    replicate_api_token: str
+    replicate_model: str = "anthropic/claude-4.5-sonnet"
+    replicate_max_tokens: int = 4096
     digest_day: int = 6
     digest_hour: int = 20
     digest_timezone: str = "Europe/Moscow"
@@ -188,7 +187,7 @@ def make_message_link(chat_id: int, message_id: int, username: str | None = None
     return f"https://t.me/c/{clean_id}/{message_id}"
 ```
 
-### 4. Анализ через Claude API (services/analyzer.py)
+### 4. Анализ через Replicate API (services/analyzer.py)
 
 **Стратегия промптинга:**
 
@@ -331,7 +330,7 @@ scheduler.add_job(
 
 ## Обработка ошибок
 
-- Claude API недоступен → retry с exponential backoff (3 попытки), уведомить админа
+- Replicate API недоступен → retry с exponential backoff (3 попытки), уведомить админа
 - Невалидный JSON от LLM → попробовать распарсить с помощью `json.loads` с fallback на regex-парсинг, при неудаче — повторный запрос с уточнением
 - Telegram rate limits → aiogram обрабатывает автоматически через `RetryAfter`
 - БД locked → использовать WAL mode в SQLite (`PRAGMA journal_mode=WAL`)
@@ -367,10 +366,10 @@ scheduler.add_job(
 
 1. **Фаза 1:** config.py + database.py + models.py + repository.py (каркас + БД)
 2. **Фаза 2:** handlers/messages.py + collector.py (сбор сообщений, запустить бота)
-3. **Фаза 3:** analyzer.py + промпт (интеграция с Claude API)
+3. **Фаза 3:** analyzer.py + промпт (интеграция с Replicate API)
 4. **Фаза 4:** digest.py + форматирование + message_links.py (генерация красивого дайджеста)
 5. **Фаза 5:** commands.py + scheduler.py (команды + автоматизация)
-6. **Фаза 6:** тесты + Docker + README
+6. **Фаза 6:** тесты + Railway + README
 7. **Фаза 7:** расширение на каналы
 
 ## Команды для начала работы
@@ -380,7 +379,7 @@ scheduler.add_job(
 mkdir -p bot/{db,handlers,services,utils} tests data
 
 # Установить зависимости
-pip install aiogram aiosqlite anthropic apscheduler pydantic-settings python-dotenv
+pip install aiogram aiosqlite replicate apscheduler pydantic-settings python-dotenv
 
 # Запуск
 python -m bot.main
@@ -394,8 +393,8 @@ pytest tests/ -v
 - В @BotFather обязательно отключить Group Privacy Mode, иначе бот не увидит сообщения
 - Бот должен быть добавлен в группу как обычный участник (не админ, если не нужны каналы)
 - SQLite + WAL mode достаточно для группы до 50 человек, для масштабирования — PostgreSQL
-- Claude Sonnet — оптимальный баланс цены и качества для этой задачи
-- Один запрос к Claude API за неделю стоит ~$0.01-0.10, это крайне дёшево
+- Claude 4.5 Sonnet через Replicate — оптимальный баланс цены и качества для этой задачи
+- Стоимость зависит от тарифа Replicate, один запрос за неделю обходится дёшево
 
 ## Навыки и агенты
 
