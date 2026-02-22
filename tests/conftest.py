@@ -10,6 +10,7 @@ _tmp.close()
 os.environ["DATABASE_PATH"] = _tmp.name
 os.environ.setdefault("TELEGRAM_BOT_TOKEN", "test-token")
 os.environ.setdefault("REPLICATE_API_TOKEN", "test-token")
+os.environ.setdefault("ADMIN_USER_IDS", "111111111")
 
 from bot.db.database import close_connection, get_connection, init_db, reset_connection  # noqa: E402
 
