@@ -107,7 +107,7 @@ async def generate_and_send_digest(
         return
 
     logger.info("Generating digest for %d messages from chat %d", len(messages), chat_id)
-    data = await analyze_messages(messages)
+    data = await analyze_messages(messages, source_type=source.type)
 
     # Fill in actual stats if LLM didn't provide them
     stats = data.setdefault("week_stats", {})

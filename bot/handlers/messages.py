@@ -60,3 +60,33 @@ async def on_message(message: TgMessage) -> None:
 
     await repo.save_message(msg)
     logger.debug("Saved message %d from chat %d", message.message_id, chat.id)
+
+
+@router.channel_post(F.text | F.caption)
+async def on_channel_post(message: TgMessage) -> None:
+    """Save channel posts (text or captions on media)."""
+    text = normalize_text(message.text or message.caption or "")
+    if not text:
+        return
+
+    chat = message.chat
+    source = await repo.get_or_create_source(
+        telegram_id=chat.id,
+        source_type="channel",
+        title=chat.title,
+        username=chat.username,
+    )
+
+    msg = Message(
+        id=None,
+        source_id=source.id,
+        message_id=message.message_id,
+        user_id=None,
+        user_name=chat.title,  # channel name as author
+        text=text,
+        reply_to_message_id=None,
+        date=message.date,
+    )
+
+    await repo.save_message(msg)
+    logger.debug("Saved channel post %d from %s", message.message_id, chat.title)

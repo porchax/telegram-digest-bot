@@ -76,6 +76,19 @@ class Repository:
         finally:
             await db.close()
 
+    async def set_source_active(self, telegram_id: int, is_active: bool) -> bool:
+        """Activate or deactivate a source. Returns True if source was found."""
+        db = await get_connection()
+        try:
+            cursor = await db.execute(
+                "UPDATE sources SET is_active = ? WHERE telegram_id = ?",
+                (int(is_active), telegram_id),
+            )
+            await db.commit()
+            return cursor.rowcount > 0
+        finally:
+            await db.close()
+
     # ── Messages ──
 
     async def save_message(self, message: Message) -> None:

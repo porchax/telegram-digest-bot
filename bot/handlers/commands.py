@@ -66,6 +66,8 @@ async def cmd_help(message: Message) -> None:
         "/digest N — дайджест за N дней\n"
         "/status — статистика бота\n"
         "/sources — список отслеживаемых чатов\n"
+        "/add_channel — добавить канал для отслеживания\n"
+        "/remove_channel — убрать канал из отслеживания\n"
         "/help — эта справка"
     )
     await message.reply(text, parse_mode="HTML")
@@ -87,3 +89,68 @@ async def cmd_sources(message: Message) -> None:
         lines.append(f"• {title} ({s.type}, id: {s.telegram_id})")
 
     await message.reply("\n".join(lines), parse_mode="HTML")
+
+
+@router.message(Command("add_channel"))
+async def cmd_add_channel(message: Message, command: CommandObject) -> None:
+    if not message.from_user or not _is_admin(message.from_user.id):
+        return
+
+    if not command.args:
+        await message.reply(
+            "Укажите ID канала, например: /add_channel -1001234567890\n"
+            "Бот должен быть администратором канала."
+        )
+        return
+
+    try:
+        channel_id = int(command.args.strip())
+    except ValueError:
+        await message.reply("Неверный формат ID. Укажите числовой ID канала.")
+        return
+
+    # Try to get channel info via bot
+    try:
+        chat = await message.bot.get_chat(channel_id)
+    except Exception:
+        await message.reply(
+            "Не удалось получить информацию о канале. "
+            "Убедитесь, что бот добавлен как администратор канала."
+        )
+        return
+
+    source = await repo.get_or_create_source(
+        telegram_id=chat.id,
+        source_type="channel",
+        title=chat.title,
+        username=chat.username,
+    )
+    # Ensure it's active
+    await repo.set_source_active(chat.id, True)
+
+    await message.reply(
+        f"Канал <b>{chat.title or chat.id}</b> добавлен для отслеживания.",
+        parse_mode="HTML",
+    )
+
+
+@router.message(Command("remove_channel"))
+async def cmd_remove_channel(message: Message, command: CommandObject) -> None:
+    if not message.from_user or not _is_admin(message.from_user.id):
+        return
+
+    if not command.args:
+        await message.reply("Укажите ID канала, например: /remove_channel -1001234567890")
+        return
+
+    try:
+        channel_id = int(command.args.strip())
+    except ValueError:
+        await message.reply("Неверный формат ID. Укажите числовой ID канала.")
+        return
+
+    found = await repo.set_source_active(channel_id, False)
+    if found:
+        await message.reply("Канал отключён от отслеживания.")
+    else:
+        await message.reply("Канал с таким ID не найден.")
