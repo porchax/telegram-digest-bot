@@ -49,12 +49,15 @@ CREATE INDEX IF NOT EXISTS idx_messages_date ON messages(date);
 
 
 async def get_connection() -> aiosqlite.Connection:
-    db_path = Path(settings.database_path)
-    db_path.parent.mkdir(parents=True, exist_ok=True)
+    db_path = settings.database_path
 
-    db = await aiosqlite.connect(str(db_path))
-    db.row_factory = aiosqlite.Row
+    db_path_obj = Path(db_path)
+    db_path_obj.parent.mkdir(parents=True, exist_ok=True)
+
+    db = await aiosqlite.connect(db_path)
     await db.execute("PRAGMA journal_mode=WAL")
+
+    db.row_factory = aiosqlite.Row
     await db.execute("PRAGMA foreign_keys=ON")
     return db
 
