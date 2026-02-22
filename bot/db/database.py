@@ -47,26 +47,44 @@ CREATE INDEX IF NOT EXISTS idx_messages_source_date ON messages(source_id, date)
 CREATE INDEX IF NOT EXISTS idx_messages_date ON messages(date);
 """
 
+_connection: aiosqlite.Connection | None = None
+
 
 async def get_connection() -> aiosqlite.Connection:
-    db_path = settings.database_path
+    """Return a shared persistent connection (created on first call)."""
+    global _connection
 
-    db_path_obj = Path(db_path)
-    db_path_obj.parent.mkdir(parents=True, exist_ok=True)
+    if _connection is not None:
+        return _connection
+
+    db_path = settings.database_path
+    Path(db_path).parent.mkdir(parents=True, exist_ok=True)
 
     db = await aiosqlite.connect(db_path)
     await db.execute("PRAGMA journal_mode=WAL")
-
-    db.row_factory = aiosqlite.Row
     await db.execute("PRAGMA foreign_keys=ON")
-    return db
+    db.row_factory = aiosqlite.Row
+
+    _connection = db
+    return _connection
+
+
+async def close_connection() -> None:
+    """Close the shared connection if open."""
+    global _connection
+    if _connection is not None:
+        await _connection.close()
+        _connection = None
+
+
+def reset_connection() -> None:
+    """Reset the connection reference (for testing)."""
+    global _connection
+    _connection = None
 
 
 async def init_db() -> None:
     db = await get_connection()
-    try:
-        await db.executescript(SCHEMA_SQL)
-        await db.commit()
-        logger.info("Database initialized successfully")
-    finally:
-        await db.close()
+    await db.executescript(SCHEMA_SQL)
+    await db.commit()
+    logger.info("Database initialized successfully")

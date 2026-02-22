@@ -21,6 +21,16 @@ async def _scheduled_digest(bot: Bot) -> None:
             await generate_and_send_digest(bot, source.telegram_id)
         except Exception:
             logger.exception("Failed to generate digest for source %d", source.id)
+            # Notify admins if configured
+            for admin_id in settings.admin_user_ids:
+                try:
+                    await bot.send_message(
+                        admin_id,
+                        f"⚠️ Не удалось сгенерировать дайджест для "
+                        f"{source.title or source.telegram_id}",
+                    )
+                except Exception:
+                    logger.warning("Could not notify admin %d", admin_id)
 
 
 def setup_scheduler(bot: Bot) -> AsyncIOScheduler:

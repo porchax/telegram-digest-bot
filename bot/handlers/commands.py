@@ -17,9 +17,17 @@ def _is_admin(user_id: int) -> bool:
     return user_id in settings.admin_user_ids
 
 
+async def _check_admin(message: Message) -> bool:
+    """Check if user is admin, reply with denial if not. Returns True if admin."""
+    if not message.from_user or not _is_admin(message.from_user.id):
+        await message.reply("⛔ У вас нет прав для этой команды.")
+        return False
+    return True
+
+
 @router.message(Command("digest"))
 async def cmd_digest(message: Message, command: CommandObject) -> None:
-    if not message.from_user or not _is_admin(message.from_user.id):
+    if not await _check_admin(message):
         return
 
     days = 7
@@ -29,9 +37,14 @@ async def cmd_digest(message: Message, command: CommandObject) -> None:
         except ValueError:
             await message.reply("Укажите число дней, например: /digest 7")
             return
+        if days < 1 or days > 365:
+            await message.reply("Укажите число дней от 1 до 365.")
+            return
 
-    await message.reply(f"Генерирую дайджест за {days} дней…")
-    await generate_and_send_digest(message.bot, message.chat.id, days=days)
+    progress = await message.reply(f"⏳ Генерирую дайджест за {days} дней…")
+    await generate_and_send_digest(
+        message.bot, message.chat.id, days=days, progress_message=progress,
+    )
 
 
 @router.message(Command("status"))
@@ -75,7 +88,7 @@ async def cmd_help(message: Message) -> None:
 
 @router.message(Command("sources"))
 async def cmd_sources(message: Message) -> None:
-    if not message.from_user or not _is_admin(message.from_user.id):
+    if not await _check_admin(message):
         return
 
     sources = await repo.get_active_sources()
@@ -93,7 +106,7 @@ async def cmd_sources(message: Message) -> None:
 
 @router.message(Command("add_channel"))
 async def cmd_add_channel(message: Message, command: CommandObject) -> None:
-    if not message.from_user or not _is_admin(message.from_user.id):
+    if not await _check_admin(message):
         return
 
     if not command.args:
@@ -136,7 +149,7 @@ async def cmd_add_channel(message: Message, command: CommandObject) -> None:
 
 @router.message(Command("remove_channel"))
 async def cmd_remove_channel(message: Message, command: CommandObject) -> None:
-    if not message.from_user or not _is_admin(message.from_user.id):
+    if not await _check_admin(message):
         return
 
     if not command.args:

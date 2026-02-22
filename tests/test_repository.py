@@ -1,4 +1,4 @@
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 import pytest
 
@@ -39,7 +39,7 @@ async def test_get_or_create_source_updates_title(repo):
 
 async def test_save_and_get_messages(repo):
     source = await repo.get_or_create_source(-100333, "group", "G")
-    now = datetime.utcnow()
+    now = datetime.now(UTC)
 
     msg = Message(
         id=None,
@@ -65,7 +65,7 @@ async def test_save_and_get_messages(repo):
 
 async def test_save_message_duplicate_ignored(repo):
     source = await repo.get_or_create_source(-100444, "group", "G")
-    now = datetime.utcnow()
+    now = datetime.now(UTC)
 
     msg = Message(
         id=None, source_id=source.id, message_id=10,
@@ -81,7 +81,7 @@ async def test_save_message_duplicate_ignored(repo):
 
 async def test_get_message_count_with_dates(repo):
     source = await repo.get_or_create_source(-100555, "group", "G")
-    now = datetime.utcnow()
+    now = datetime.now(UTC)
 
     for i in range(5):
         await repo.save_message(Message(
@@ -104,7 +104,7 @@ async def test_get_message_count_with_dates(repo):
 
 async def test_save_and_get_digest(repo):
     source = await repo.get_or_create_source(-100666, "group", "G")
-    now = datetime.utcnow()
+    now = datetime.now(UTC)
 
     digest = Digest(
         id=None,
@@ -121,3 +121,95 @@ async def test_save_and_get_digest(repo):
     assert last is not None
     assert last.content == "Test digest"
     assert last.message_count == 42
+
+
+async def test_get_digest_by_id(repo):
+    source = await repo.get_or_create_source(-100777, "group", "G")
+    now = datetime.now(UTC)
+
+    digest = Digest(
+        id=None,
+        source_id=source.id,
+        week_start=now - timedelta(days=7),
+        week_end=now,
+        content="By ID test",
+        raw_response='{"important_topics": []}',
+        message_count=10,
+        sent_message_id=999,
+    )
+    digest_id = await repo.save_digest(digest)
+
+    fetched = await repo.get_digest_by_id(digest_id)
+    assert fetched is not None
+    assert fetched.content == "By ID test"
+    assert fetched.sent_message_id == 999
+
+    missing = await repo.get_digest_by_id(99999)
+    assert missing is None
+
+
+async def test_get_source_by_id(repo):
+    source = await repo.get_or_create_source(-100888, "group", "ById")
+
+    fetched = await repo.get_source_by_id(source.id)
+    assert fetched is not None
+    assert fetched.telegram_id == -100888
+    assert fetched.title == "ById"
+
+    missing = await repo.get_source_by_id(99999)
+    assert missing is None
+
+
+async def test_update_digest_message_id(repo):
+    source = await repo.get_or_create_source(-100999, "group", "G")
+    now = datetime.now(UTC)
+
+    digest = Digest(
+        id=None,
+        source_id=source.id,
+        week_start=now - timedelta(days=7),
+        week_end=now,
+        content="Update test",
+        message_count=5,
+        sent_message_id=None,
+    )
+    digest_id = await repo.save_digest(digest)
+
+    await repo.update_digest_message_id(digest_id, 12345)
+    fetched = await repo.get_digest_by_id(digest_id)
+    assert fetched.sent_message_id == 12345
+
+
+async def test_update_message_text(repo):
+    source = await repo.get_or_create_source(-101000, "group", "G")
+    now = datetime.now(UTC)
+
+    msg = Message(
+        id=None, source_id=source.id, message_id=50,
+        user_id=1, user_name="Alice", text="Original",
+        reply_to_message_id=None, date=now,
+    )
+    await repo.save_message(msg)
+
+    await repo.update_message_text(source.id, 50, "Edited text")
+
+    messages = await repo.get_messages(
+        source.id, now - timedelta(hours=1), now + timedelta(hours=1),
+    )
+    assert messages[0].text == "Edited text"
+
+
+async def test_set_source_active(repo):
+    await repo.get_or_create_source(-101111, "group", "Active")
+
+    result = await repo.set_source_active(-101111, False)
+    assert result is True
+
+    sources = await repo.get_active_sources()
+    assert all(s.telegram_id != -101111 for s in sources)
+
+    result = await repo.set_source_active(-101111, True)
+    assert result is True
+
+    not_found = await repo.set_source_active(-999999, False)
+    assert not_found is False

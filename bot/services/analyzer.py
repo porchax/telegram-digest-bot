@@ -1,3 +1,4 @@
+import asyncio
 import json
 import logging
 import re
@@ -72,22 +73,51 @@ DAY_SUMMARY_SYSTEM_PROMPT = """\
 Формат: свободный текст, 3-10 предложений."""
 
 MAX_RETRIES = 3
+_RETRY_DELAYS = [2, 5, 10]  # seconds between retries
+
+
+def _empty_result(messages: list[Message]) -> dict:
+    """Return an empty result structure with basic stats."""
+    return {
+        "important_topics": [],
+        "discussed_topics": [],
+        "week_stats": {
+            "total_messages": len(messages),
+            "active_users": len({m.user_id for m in messages if m.user_id}),
+            "most_active_user": None,
+        },
+    }
 
 
 async def _call_replicate(system_prompt: str, user_prompt: str) -> str:
-    """Call Replicate API and return the text response."""
+    """Call Replicate API with retry and exponential backoff."""
     prompt = f"System: {system_prompt}\n\nUser: {user_prompt}"
 
-    output = replicate.run(
-        settings.replicate_model,
-        input={
-            "prompt": prompt,
-            "max_tokens": settings.replicate_max_tokens,
-        },
-    )
+    last_error: Exception | None = None
+    for attempt in range(MAX_RETRIES):
+        try:
+            output = await replicate.async_run(
+                settings.replicate_model,
+                input={
+                    "prompt": prompt,
+                    "max_tokens": settings.replicate_max_tokens,
+                },
+            )
+            # Replicate returns an iterator of string chunks
+            return "".join(output)
+        except Exception as e:
+            last_error = e
+            delay = _RETRY_DELAYS[min(attempt, len(_RETRY_DELAYS) - 1)]
+            logger.warning(
+                "Replicate API error (attempt %d/%d): %s. Retrying in %ds",
+                attempt + 1, MAX_RETRIES, e, delay,
+            )
+            if attempt < MAX_RETRIES - 1:
+                await asyncio.sleep(delay)
 
-    # Replicate returns an iterator of string chunks
-    return "".join(output)
+    raise RuntimeError(
+        f"Replicate API failed after {MAX_RETRIES} attempts"
+    ) from last_error
 
 
 def _parse_json(text: str) -> dict | None:
@@ -106,13 +136,22 @@ def _parse_json(text: str) -> dict | None:
         except json.JSONDecodeError:
             pass
 
-    # Try finding first { ... } pair
-    match = re.search(r"\{.*}", text, re.DOTALL)
-    if match:
-        try:
-            return json.loads(match.group(0))
-        except json.JSONDecodeError:
-            pass
+    # Try finding first balanced { ... } pair (non-greedy via json.loads validation)
+    depth = 0
+    start = -1
+    for i, ch in enumerate(text):
+        if ch == "{":
+            if depth == 0:
+                start = i
+            depth += 1
+        elif ch == "}":
+            depth -= 1
+            if depth == 0 and start != -1:
+                candidate = text[start : i + 1]
+                try:
+                    return json.loads(candidate)
+                except json.JSONDecodeError:
+                    start = -1
 
     return None
 
@@ -127,15 +166,7 @@ async def analyze_messages(
     Uses two-stage analysis if messages exceed MAX_MESSAGES_PER_PROMPT.
     """
     if not messages:
-        return {
-            "important_topics": [],
-            "discussed_topics": [],
-            "week_stats": {
-                "total_messages": 0,
-                "active_users": 0,
-                "most_active_user": None,
-            },
-        }
+        return _empty_result([])
 
     system_prompt = CHANNEL_SYSTEM_PROMPT if source_type == "channel" else SYSTEM_PROMPT
 
@@ -151,7 +182,11 @@ async def _single_pass(messages: list[Message], system_prompt: str) -> dict:
 
     for attempt in range(1, MAX_RETRIES + 1):
         logger.info("Analyzing %d messages (attempt %d)", len(messages), attempt)
-        response = await _call_replicate(system_prompt, prompt)
+        try:
+            response = await _call_replicate(system_prompt, prompt)
+        except RuntimeError:
+            logger.exception("Replicate API unavailable during single-pass analysis")
+            return _empty_result(messages)
 
         result = _parse_json(response)
         if result:
@@ -159,17 +194,8 @@ async def _single_pass(messages: list[Message], system_prompt: str) -> dict:
 
         logger.warning("Failed to parse JSON on attempt %d", attempt)
 
-    logger.error("All %d attempts to parse JSON failed, returning raw", MAX_RETRIES)
-    return {
-        "important_topics": [],
-        "discussed_topics": [],
-        "week_stats": {
-            "total_messages": len(messages),
-            "active_users": len({m.user_id for m in messages if m.user_id}),
-            "most_active_user": None,
-        },
-        "_raw_response": response,
-    }
+    logger.error("All %d attempts to parse JSON failed", MAX_RETRIES)
+    return _empty_result(messages)
 
 
 async def _chunked_pass(messages: list[Message], system_prompt: str) -> dict:
@@ -182,7 +208,11 @@ async def _chunked_pass(messages: list[Message], system_prompt: str) -> dict:
         logger.info("Summarizing day %s (%d messages)", date_label, len(day_messages))
 
         prompt = format_messages(day_messages)
-        summary = await _call_replicate(DAY_SUMMARY_SYSTEM_PROMPT, prompt)
+        try:
+            summary = await _call_replicate(DAY_SUMMARY_SYSTEM_PROMPT, prompt)
+        except RuntimeError:
+            logger.exception("Replicate API unavailable for day %s", date_label)
+            summary = f"(не удалось проанализировать день {date_label})"
         summaries.append(f"## {date_label}\n{summary}")
 
     combined = "\n\n".join(summaries)
@@ -193,7 +223,11 @@ async def _chunked_pass(messages: list[Message], system_prompt: str) -> dict:
 
     for attempt in range(1, MAX_RETRIES + 1):
         logger.info("Final digest synthesis (attempt %d)", attempt)
-        response = await _call_replicate(system_prompt, final_prompt)
+        try:
+            response = await _call_replicate(system_prompt, final_prompt)
+        except RuntimeError:
+            logger.exception("Replicate API unavailable during final synthesis")
+            return _empty_result(messages)
 
         result = _parse_json(response)
         if result:
@@ -202,13 +236,4 @@ async def _chunked_pass(messages: list[Message], system_prompt: str) -> dict:
         logger.warning("Failed to parse final JSON on attempt %d", attempt)
 
     logger.error("Chunked analysis failed to produce valid JSON")
-    return {
-        "important_topics": [],
-        "discussed_topics": [],
-        "week_stats": {
-            "total_messages": len(messages),
-            "active_users": len({m.user_id for m in messages if m.user_id}),
-            "most_active_user": None,
-        },
-        "_raw_response": response,
-    }
+    return _empty_result(messages)

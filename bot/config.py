@@ -13,6 +13,7 @@ class Settings(BaseSettings):
     database_path: str = "data/bot.db"
     max_messages_per_prompt: int = 2000
     max_message_length: int = 500
+    auto_pin_digest: bool = True
 
     model_config = {"env_file": ".env"}
 

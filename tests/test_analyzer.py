@@ -1,5 +1,5 @@
 from datetime import datetime
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 import pytest
 
@@ -66,6 +66,21 @@ def test_parse_json_invalid():
     assert _parse_json("no json here") is None
 
 
+def test_parse_json_multiple_objects():
+    """Greedy regex fix: should parse first valid JSON object, not span across both."""
+    raw = 'First: {"a": 1} then {"b": 2}'
+    result = _parse_json(raw)
+    assert result == {"a": 1}
+
+
+def test_parse_json_nested():
+    raw = '{"outer": {"inner": 1}, "list": [1, 2]}'
+    result = _parse_json(raw)
+    assert result is not None
+    assert result["outer"]["inner"] == 1
+    assert result["list"] == [1, 2]
+
+
 VALID_RESPONSE = """{
   "important_topics": [
     {"title": "Test", "summary": "Sum", "first_message_id": 1, "participants": ["Alice"]}
@@ -75,7 +90,7 @@ VALID_RESPONSE = """{
 }"""
 
 
-@patch("bot.services.analyzer._call_replicate")
+@patch("bot.services.analyzer._call_replicate", new_callable=AsyncMock)
 async def test_analyze_messages_single_pass(mock_call):
     mock_call.return_value = VALID_RESPONSE
     msgs = [_make_msg(i, f"text {i}") for i in range(5)]
@@ -91,3 +106,29 @@ async def test_analyze_messages_empty():
     result = await analyze_messages([])
     assert result["important_topics"] == []
     assert result["week_stats"]["total_messages"] == 0
+
+
+@patch("bot.services.analyzer._call_replicate", new_callable=AsyncMock)
+async def test_analyze_messages_api_failure_returns_empty(mock_call):
+    """When API fails after all retries, return empty result instead of crashing."""
+    mock_call.side_effect = RuntimeError("API unavailable")
+    msgs = [_make_msg(i, f"text {i}") for i in range(3)]
+
+    result = await analyze_messages(msgs)
+
+    assert result["important_topics"] == []
+    assert result["discussed_topics"] == []
+    assert result["week_stats"]["total_messages"] == 3
+
+
+@patch("bot.services.analyzer._call_replicate", new_callable=AsyncMock)
+async def test_analyze_messages_invalid_json_retries(mock_call):
+    """When LLM returns invalid JSON, retry and eventually return empty."""
+    mock_call.return_value = "not valid json at all"
+    msgs = [_make_msg(1, "hello")]
+
+    result = await analyze_messages(msgs)
+
+    assert result["important_topics"] == []
+    # Should have retried MAX_RETRIES times
+    assert mock_call.call_count == 3

@@ -18,99 +18,103 @@ class Repository:
         username: str | None = None,
     ) -> Source:
         db = await get_connection()
-        try:
-            cursor = await db.execute(
-                "SELECT * FROM sources WHERE telegram_id = ?",
-                (telegram_id,),
-            )
-            row = await cursor.fetchone()
+        cursor = await db.execute(
+            "SELECT * FROM sources WHERE telegram_id = ?",
+            (telegram_id,),
+        )
+        row = await cursor.fetchone()
 
-            if row:
-                source = self._row_to_source(row)
-                # Update title/username if changed
-                if title != source.title or username != source.username:
-                    await db.execute(
-                        "UPDATE sources SET title = ?, username = ? WHERE id = ?",
-                        (title, username, source.id),
-                    )
-                    await db.commit()
-                    source.title = title
-                    source.username = username
-                return source
+        if row:
+            source = self._row_to_source(row)
+            # Update title/username if changed
+            if title != source.title or username != source.username:
+                await db.execute(
+                    "UPDATE sources SET title = ?, username = ? WHERE id = ?",
+                    (title, username, source.id),
+                )
+                await db.commit()
+                source.title = title
+                source.username = username
+            return source
 
-            await db.execute(
-                "INSERT INTO sources (telegram_id, type, title, username) VALUES (?, ?, ?, ?)",
-                (telegram_id, source_type, title, username),
-            )
-            await db.commit()
-            cursor = await db.execute(
-                "SELECT * FROM sources WHERE telegram_id = ?",
-                (telegram_id,),
-            )
-            row = await cursor.fetchone()
-            logger.info("Created new source: %s (id=%d)", title, telegram_id)
-            return self._row_to_source(row)
-        finally:
-            await db.close()
+        await db.execute(
+            "INSERT INTO sources (telegram_id, type, title, username) VALUES (?, ?, ?, ?)",
+            (telegram_id, source_type, title, username),
+        )
+        await db.commit()
+        cursor = await db.execute(
+            "SELECT * FROM sources WHERE telegram_id = ?",
+            (telegram_id,),
+        )
+        row = await cursor.fetchone()
+        logger.info("Created new source: %s (id=%d)", title, telegram_id)
+        return self._row_to_source(row)
 
     async def get_source_by_telegram_id(self, telegram_id: int) -> Source | None:
         db = await get_connection()
-        try:
-            cursor = await db.execute(
-                "SELECT * FROM sources WHERE telegram_id = ?",
-                (telegram_id,),
-            )
-            row = await cursor.fetchone()
-            return self._row_to_source(row) if row else None
-        finally:
-            await db.close()
+        cursor = await db.execute(
+            "SELECT * FROM sources WHERE telegram_id = ?",
+            (telegram_id,),
+        )
+        row = await cursor.fetchone()
+        return self._row_to_source(row) if row else None
+
+    async def get_source_by_id(self, source_id: int) -> Source | None:
+        db = await get_connection()
+        cursor = await db.execute(
+            "SELECT * FROM sources WHERE id = ?", (source_id,),
+        )
+        row = await cursor.fetchone()
+        return self._row_to_source(row) if row else None
 
     async def get_active_sources(self) -> list[Source]:
         db = await get_connection()
-        try:
-            cursor = await db.execute(
-                "SELECT * FROM sources WHERE is_active = 1"
-            )
-            rows = await cursor.fetchall()
-            return [self._row_to_source(r) for r in rows]
-        finally:
-            await db.close()
+        cursor = await db.execute(
+            "SELECT * FROM sources WHERE is_active = 1"
+        )
+        rows = await cursor.fetchall()
+        return [self._row_to_source(r) for r in rows]
 
     async def set_source_active(self, telegram_id: int, is_active: bool) -> bool:
         """Activate or deactivate a source. Returns True if source was found."""
         db = await get_connection()
-        try:
-            cursor = await db.execute(
-                "UPDATE sources SET is_active = ? WHERE telegram_id = ?",
-                (int(is_active), telegram_id),
-            )
-            await db.commit()
-            return cursor.rowcount > 0
-        finally:
-            await db.close()
+        cursor = await db.execute(
+            "UPDATE sources SET is_active = ? WHERE telegram_id = ?",
+            (int(is_active), telegram_id),
+        )
+        await db.commit()
+        return cursor.rowcount > 0
 
     # ── Messages ──
 
     async def save_message(self, message: Message) -> None:
         db = await get_connection()
-        try:
-            await db.execute(
-                """INSERT OR IGNORE INTO messages
-                   (source_id, message_id, user_id, user_name, text, reply_to_message_id, date)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    message.source_id,
-                    message.message_id,
-                    message.user_id,
-                    message.user_name,
-                    message.text,
-                    message.reply_to_message_id,
-                    message.date.isoformat(),
-                ),
-            )
-            await db.commit()
-        finally:
-            await db.close()
+        await db.execute(
+            """INSERT OR IGNORE INTO messages
+               (source_id, message_id, user_id, user_name, text, reply_to_message_id, date)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (
+                message.source_id,
+                message.message_id,
+                message.user_id,
+                message.user_name,
+                message.text,
+                message.reply_to_message_id,
+                message.date.isoformat(),
+            ),
+        )
+        await db.commit()
+
+    async def update_message_text(
+        self, source_id: int, message_id: int, text: str,
+    ) -> None:
+        """Update text of an existing message (for edited messages)."""
+        db = await get_connection()
+        await db.execute(
+            "UPDATE messages SET text = ? WHERE source_id = ? AND message_id = ?",
+            (text, source_id, message_id),
+        )
+        await db.commit()
 
     async def get_messages(
         self,
@@ -119,17 +123,14 @@ class Repository:
         date_to: datetime,
     ) -> list[Message]:
         db = await get_connection()
-        try:
-            cursor = await db.execute(
-                """SELECT * FROM messages
-                   WHERE source_id = ? AND date >= ? AND date <= ?
-                   ORDER BY date ASC""",
-                (source_id, date_from.isoformat(), date_to.isoformat()),
-            )
-            rows = await cursor.fetchall()
-            return [self._row_to_message(r) for r in rows]
-        finally:
-            await db.close()
+        cursor = await db.execute(
+            """SELECT * FROM messages
+               WHERE source_id = ? AND date >= ? AND date <= ?
+               ORDER BY date ASC""",
+            (source_id, date_from.isoformat(), date_to.isoformat()),
+        )
+        rows = await cursor.fetchall()
+        return [self._row_to_message(r) for r in rows]
 
     async def get_message_count(
         self,
@@ -138,60 +139,69 @@ class Repository:
         date_to: datetime | None = None,
     ) -> int:
         db = await get_connection()
-        try:
-            if date_from and date_to:
-                cursor = await db.execute(
-                    """SELECT COUNT(*) FROM messages
-                       WHERE source_id = ? AND date >= ? AND date <= ?""",
-                    (source_id, date_from.isoformat(), date_to.isoformat()),
-                )
-            else:
-                cursor = await db.execute(
-                    "SELECT COUNT(*) FROM messages WHERE source_id = ?",
-                    (source_id,),
-                )
-            row = await cursor.fetchone()
-            return row[0]
-        finally:
-            await db.close()
+        if date_from and date_to:
+            cursor = await db.execute(
+                """SELECT COUNT(*) FROM messages
+                   WHERE source_id = ? AND date >= ? AND date <= ?""",
+                (source_id, date_from.isoformat(), date_to.isoformat()),
+            )
+        else:
+            cursor = await db.execute(
+                "SELECT COUNT(*) FROM messages WHERE source_id = ?",
+                (source_id,),
+            )
+        row = await cursor.fetchone()
+        return row[0]
 
     # ── Digests ──
 
     async def save_digest(self, digest: Digest) -> int:
         db = await get_connection()
-        try:
-            cursor = await db.execute(
-                """INSERT INTO digests
-                   (source_id, week_start, week_end, content, raw_response, message_count, sent_message_id)
-                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    digest.source_id,
-                    digest.week_start.isoformat(),
-                    digest.week_end.isoformat(),
-                    digest.content,
-                    digest.raw_response,
-                    digest.message_count,
-                    digest.sent_message_id,
-                ),
-            )
-            await db.commit()
-            return cursor.lastrowid
-        finally:
-            await db.close()
+        cursor = await db.execute(
+            """INSERT INTO digests
+               (source_id, week_start, week_end, content, raw_response, message_count, sent_message_id)
+               VALUES (?, ?, ?, ?, ?, ?, ?)""",
+            (
+                digest.source_id,
+                digest.week_start.isoformat(),
+                digest.week_end.isoformat(),
+                digest.content,
+                digest.raw_response,
+                digest.message_count,
+                digest.sent_message_id,
+            ),
+        )
+        await db.commit()
+        return cursor.lastrowid
 
     async def get_last_digest(self, source_id: int) -> Digest | None:
         db = await get_connection()
-        try:
-            cursor = await db.execute(
-                """SELECT * FROM digests
-                   WHERE source_id = ?
-                   ORDER BY created_at DESC LIMIT 1""",
-                (source_id,),
-            )
-            row = await cursor.fetchone()
-            return self._row_to_digest(row) if row else None
-        finally:
-            await db.close()
+        cursor = await db.execute(
+            """SELECT * FROM digests
+               WHERE source_id = ?
+               ORDER BY created_at DESC LIMIT 1""",
+            (source_id,),
+        )
+        row = await cursor.fetchone()
+        return self._row_to_digest(row) if row else None
+
+    async def get_digest_by_id(self, digest_id: int) -> Digest | None:
+        db = await get_connection()
+        cursor = await db.execute(
+            "SELECT * FROM digests WHERE id = ?", (digest_id,),
+        )
+        row = await cursor.fetchone()
+        return self._row_to_digest(row) if row else None
+
+    async def update_digest_message_id(
+        self, digest_id: int, message_id: int,
+    ) -> None:
+        db = await get_connection()
+        await db.execute(
+            "UPDATE digests SET sent_message_id = ? WHERE id = ?",
+            (message_id, digest_id),
+        )
+        await db.commit()
 
     # ── Row mappers ──
 
