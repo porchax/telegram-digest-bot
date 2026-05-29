@@ -248,6 +248,7 @@ async def test_digest_sends_poster_when_enabled(mock_analyze, mock_prompt, mock_
         await digest_mod.generate_and_send_digest(bot, source.telegram_id)
 
     mock_poster.assert_awaited_once()
+    mock_prompt.assert_awaited_once()
     bot.send_photo.assert_awaited_once()
     bot.send_message.assert_awaited()
 
@@ -287,3 +288,22 @@ async def test_digest_sent_when_poster_fails(mock_analyze, mock_prompt, mock_pos
 
     bot.send_photo.assert_not_called()
     bot.send_message.assert_awaited()  # дайджест всё равно ушёл
+
+
+@patch("bot.services.digest.generate_poster", new_callable=AsyncMock)
+@patch("bot.services.digest.build_image_prompt", new_callable=AsyncMock)
+@patch("bot.services.digest.analyze_messages", new_callable=AsyncMock)
+async def test_digest_sent_when_poster_raises(mock_analyze, mock_prompt, mock_poster):
+    source = await _seed_group_with_message()
+    mock_analyze.return_value = _VALID_DATA
+    mock_prompt.return_value = "prompt"
+    mock_poster.side_effect = RuntimeError("image api exploded")
+
+    bot = AsyncMock()
+    bot.send_message.return_value = MagicMock(message_id=558)
+
+    with patch.object(digest_mod.settings, "generate_digest_image", True):
+        await digest_mod.generate_and_send_digest(bot, source.telegram_id)
+
+    bot.send_photo.assert_not_called()
+    bot.send_message.assert_awaited()  # дайджест всё равно ушёл, несмотря на исключение

@@ -254,8 +254,12 @@ async def generate_and_send_digest(
                 await progress_message.edit_text("🎨 Рисую плакат недели (~2 мин)…")
             except Exception:
                 logger.debug("Could not update progress message for poster step")
-        image_prompt = await build_image_prompt(data, source.type)
-        poster = await generate_poster(image_prompt)
+        try:
+            image_prompt = await build_image_prompt(data, source.type)
+            poster = await generate_poster(image_prompt)
+        except Exception:
+            logger.exception("Failed to generate weekly poster for chat %d", chat_id)
+            poster = None
 
     content = format_digest_html(data, week_start, week_end, chat_id, source.username)
     content = _truncate_html(content)
