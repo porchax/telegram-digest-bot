@@ -65,6 +65,8 @@ async def _run(chat: str, days: int) -> None:
     client = TelegramClient(session_path, int(api_id), api_hash)
     await client.start()  # интерактивный вход при первом запуске
     try:
+        # Прогреваем кэш диалогов, чтобы get_entity нашёл чат по -100… id.
+        await client.get_dialogs()
         entity = await client.get_entity(chat_id)
         title = getattr(entity, "title", None)
         username = getattr(entity, "username", None)
