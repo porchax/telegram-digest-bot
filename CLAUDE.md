@@ -146,6 +146,10 @@ DATABASE_PATH=data/bot.db
 MAX_MESSAGES_PER_PROMPT=2000
 MAX_MESSAGE_LENGTH=500
 AUTO_PIN_DIGEST=true
+GENERATE_DIGEST_IMAGE=false
+IMAGE_MODEL=openai/gpt-image-2
+IMAGE_QUALITY=medium
+IMAGE_OUTPUT_FORMAT=jpeg
 ```
 
 ## UX-фичи
@@ -158,6 +162,7 @@ AUTO_PIN_DIGEST=true
 - **Progress indicator** — при `/digest`: "⏳ Генерирую..." → "📨 Найдено N сообщений..." → "✅ Отправлен!"
 - **Welcome message** — при добавлении бота в группу
 - **Edited messages** — обновление текста в БД при редактировании
+- **Плакат недели** — при `GENERATE_DIGEST_IMAGE=true` над дайджестом публикуется сатирический плакат-инфографика (gpt-image-2 через Replicate, ~2 мин). При сбое генерации дайджест выходит без картинки.
 
 ## Обработка ошибок
 
