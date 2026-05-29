@@ -3,12 +3,13 @@ import logging
 from datetime import UTC, datetime, timedelta
 
 from aiogram import Bot
-from aiogram.types import InlineKeyboardButton, InlineKeyboardMarkup
+from aiogram.types import BufferedInputFile, InlineKeyboardButton, InlineKeyboardMarkup
 
 from bot.config import settings
 from bot.db.models import Digest
 from bot.db.repository import Repository
 from bot.services.analyzer import analyze_messages
+from bot.services.image import build_image_prompt, generate_poster
 from bot.utils.message_links import make_message_link
 
 logger = logging.getLogger(__name__)
@@ -245,8 +246,29 @@ async def generate_and_send_digest(
         len({m.user_id for m in messages if m.user_id}),
     )
 
+    # Сгенерировать плакат недели (опционально, не должен блокировать дайджест)
+    poster: bytes | None = None
+    if settings.generate_digest_image:
+        if progress_message:
+            try:
+                await progress_message.edit_text("🎨 Рисую плакат недели (~2 мин)…")
+            except Exception:
+                logger.debug("Could not update progress message for poster step")
+        image_prompt = await build_image_prompt(data, source.type)
+        poster = await generate_poster(image_prompt)
+
     content = format_digest_html(data, week_start, week_end, chat_id, source.username)
     content = _truncate_html(content)
+
+    # Плакат публикуется НАД текстом дайджеста, если сгенерирован
+    if poster:
+        try:
+            await bot.send_photo(
+                chat_id,
+                BufferedInputFile(poster, filename=f"poster.{settings.image_output_format}"),
+            )
+        except Exception:
+            logger.exception("Failed to send poster to chat %d", chat_id)
 
     # Send message first, then save to DB (avoids orphaned records)
     keyboard_placeholder = build_digest_keyboard(0)
