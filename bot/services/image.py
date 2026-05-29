@@ -15,7 +15,9 @@ _MAX_PROMPT_CHARS = 1000
 DEFAULT_IMAGE_PROMPT = (
     "A funny satirical infographic poster summarizing a week in a group chat. "
     "Caricature style, exaggerated cartoon characters, bold tabloid-style headlines, "
-    "vibrant colors, playful absurd humor, friendly tone."
+    "vibrant colors, playful absurd humor, friendly tone. "
+    "All visible text, headlines and captions in the poster are written in RUSSIAN "
+    "(Cyrillic), for example a big title «Неделя чата». No Latin letters on the image."
 )
 
 IMAGE_PROMPT_SYSTEM = """\
@@ -29,8 +31,16 @@ IMAGE_PROMPT_SYSTEM = """\
 - визуальные гэги, контраст пафоса и бытовухи, тон «обложка таблоида / агитплакат»;
 - доброжелательно, без оскорблений и токсичности — это дружеский подкол.
 
-Выведи ТОЛЬКО готовый промпт для модели генерации изображений, на АНГЛИЙСКОМ языке,
-одним абзацем, без markdown, без кавычек, без пояснений. Не длиннее 900 символов."""
+ЯЗЫК ТЕКСТА НА ПЛАКАТЕ — ТОЛЬКО РУССКИЙ:
+- весь текст, который рисуется НА плакате (заголовки, подписи, реплики, надписи на
+  табличках и плашках), должен быть на РУССКОМ языке (кириллица), без латинских букв;
+- конкретные русские надписи указывай в кавычках «...» — так модель отрисует их читаемо;
+- обязательно добавь в промпт явную фразу: all rendered text in the poster is in Russian
+  (Cyrillic script), no Latin letters.
+
+Само описание сцены/стиля/композиции пиши на АНГЛИЙСКОМ — кроме самих русских надписей
+в кавычках. Выведи ТОЛЬКО готовый промпт одним абзацем, без markdown и без пояснений.
+Не длиннее 900 символов."""
 
 
 def _collect_titles(data: dict) -> list[str]:
