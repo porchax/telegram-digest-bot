@@ -307,3 +307,23 @@ async def test_digest_sent_when_poster_raises(mock_analyze, mock_prompt, mock_po
 
     bot.send_photo.assert_not_called()
     bot.send_message.assert_awaited()  # дайджест всё равно ушёл, несмотря на исключение
+
+
+@patch("bot.services.digest.generate_poster", new_callable=AsyncMock)
+@patch("bot.services.digest.build_image_prompt", new_callable=AsyncMock)
+@patch("bot.services.digest.analyze_messages", new_callable=AsyncMock)
+async def test_digest_sent_when_send_photo_fails(mock_analyze, mock_prompt, mock_poster):
+    source = await _seed_group_with_message()
+    mock_analyze.return_value = _VALID_DATA
+    mock_prompt.return_value = "prompt"
+    mock_poster.return_value = b"\xff\xd8\xff fake jpeg"
+
+    bot = AsyncMock()
+    bot.send_photo.side_effect = RuntimeError("telegram send_photo failed")
+    bot.send_message.return_value = MagicMock(message_id=559)
+
+    with patch.object(digest_mod.settings, "generate_digest_image", True):
+        await digest_mod.generate_and_send_digest(bot, source.telegram_id)
+
+    bot.send_photo.assert_awaited_once()  # попытка отправить плакат была
+    bot.send_message.assert_awaited()  # но дайджест всё равно ушёл
