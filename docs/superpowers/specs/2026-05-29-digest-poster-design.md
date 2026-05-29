@@ -1,0 +1,133 @@
+# Дизайн: «Плакат недели» к дайджесту
+
+**Дата:** 2026-05-29
+**Статус:** утверждён к реализации
+
+## Цель
+
+Раз в неделю вместе с дайджестом публиковать сгенерированную картинку-плакат
+в стиле забавной инфографики, отражающую «сюжет недели» из содержания дайджеста.
+Картинка публикуется **сверху**, текст дайджеста — **под ней**.
+
+Модель генерации: **`openai/gpt-image-2`** через Replicate (сильный рендеринг
+текста и инфографики). Генерация занимает ~2 минуты.
+
+## Поток данных
+
+Изменяется `generate_and_send_digest` в `bot/services/digest.py`:
+
+```
+analyze_messages(messages, source_type) → data (JSON тем)
+   ↓  если settings.generate_digest_image:
+build_image_prompt(data, source_type) → англоязычный промпт сцены  [LLM, текст]
+generate_poster(prompt) → bytes | None                            [gpt-image-2, ~2 мин]
+   ↓
+если poster получен:
+    bot.send_photo(chat_id, poster)             ← плакат сверху
+bot.send_message(chat_id, digest_html, keyboard) ← дайджест под ним
+   ↓
+save_digest → update keyboard → auto-pin (закрепляем СООБЩЕНИЕ ДАЙДЖЕСТА, как сейчас)
+```
+
+Сохраняется принцип **send-before-save**: дайджест сохраняется в БД только после
+успешной отправки текстового сообщения. Картинка отправляется до текста; её сбой
+не блокирует публикацию дайджеста.
+
+### Прогресс-индикатор для `/digest`
+
+```
+⏳ Генерирую дайджест…
+📨 Найдено N сообщений, анализирую…
+🎨 Рисую плакат недели (~2 мин)…      ← новый шаг, только если фича включена
+✅ Дайджест отправлен!
+```
+
+## Компоненты
+
+### Новый модуль `bot/services/image.py`
+
+**`build_image_prompt(data: dict, source_type: str) -> str`**
+- Отдельный LLM-вызов через `analyzer._call_replicate` (текстовая модель из `settings.replicate_model`).
+- Системный промпт: роль арт-директора; превратить заголовки тем недели в описание
+  забавного иллюстрированного плаката-инфографики; вернуть **только** английский
+  промпт длиной ≤ 900 символов, без markdown и пояснений.
+- На вход подаются заголовки `important_topics` и `discussed_topics` (без длинных summary,
+  чтобы уложиться в промпт).
+- Результат обрезается до 1000 символов на стороне кода (лимит gpt-image).
+- При сбое LLM возвращает безопасный дефолтный промпт (общая «сцена недели чата»),
+  чтобы фича могла продолжить.
+
+**`generate_poster(prompt: str) -> bytes | None`**
+- `replicate.async_run(settings.image_model, input={"prompt": prompt, "quality": settings.image_quality, "output_format": settings.image_output_format})`.
+- Результат — `FileOutput` (или список); берётся первый, читаются байты
+  (через `FileOutput.read()`, обёрнутый в `asyncio.to_thread`, либо `await output.aread()`).
+- Свой retry: до 2 попыток с задержкой (картинка дорогая и долгая — не нужен агрессивный backoff).
+- При любой ошибке → `None`. Логируется через `logger.exception`. Бот не падает.
+
+### Изменения `bot/services/digest.py`
+
+- В `generate_and_send_digest` после `analyze_messages` и заполнения статистики:
+  если `settings.generate_digest_image` — построить промпт, сгенерировать плакат,
+  обновить progress-сообщение.
+- Перед отправкой текста дайджеста: если `poster` не `None`, отправить
+  `bot.send_photo(chat_id, BufferedInputFile(poster, filename="poster.jpg"))`
+  в блоке try/except (сбой фото логируется, дайджест всё равно публикуется).
+- Photo отправляется **без подписи** (заголовок и статистика уже есть в тексте дайджеста — избегаем дублирования).
+- Остальной поток (save_digest, keyboard, auto-pin текста дайджеста) — без изменений.
+
+### Конфиг `bot/config.py` + `.env.example`
+
+Новые поля `Settings`:
+
+```python
+generate_digest_image: bool = False
+image_model: str = "openai/gpt-image-2"
+image_quality: str = "medium"          # low | medium | high
+image_output_format: str = "jpeg"      # jpeg быстрее png
+```
+
+`.env.example`:
+
+```env
+GENERATE_DIGEST_IMAGE=false
+IMAGE_MODEL=openai/gpt-image-2
+IMAGE_QUALITY=medium
+IMAGE_OUTPUT_FORMAT=jpeg
+```
+
+## Обработка ошибок
+
+- Сбой `build_image_prompt` (LLM недоступен) → дефолтный промпт, генерация продолжается.
+- Сбой `generate_poster` → `None`, дайджест публикуется без картинки. Лог.
+- Сбой `send_photo` → лог, продолжаем с текстовым дайджестом.
+- Картинка считается **необязательной**: дополнительных уведомлений админам нет.
+- Существующая обработка ошибок дайджеста сохраняется без изменений.
+
+## База данных
+
+Без изменений. Хранение промпта/file_id картинки — out of scope (YAGNI).
+
+## Область применения
+
+Глобальный флаг `GENERATE_DIGEST_IMAGE`. При включении картинка генерируется для
+**всех** активных источников (и групп, и каналов), как при плановой генерации,
+так и при ручной команде `/digest`.
+
+## Тестирование
+
+Новый файл `tests/test_image.py` (стиль `tests/test_analyzer.py`):
+
+- `build_image_prompt` возвращает непустую строку (мок `_call_replicate`).
+- `build_image_prompt` обрезает результат до лимита 1000 символов.
+- `build_image_prompt` возвращает дефолтный промпт при исключении LLM.
+- `generate_poster` возвращает `bytes` при успехе (мок `replicate.async_run`).
+- `generate_poster` возвращает `None` при ошибке API.
+
+Все существующие 43 теста должны проходить без изменений.
+
+## Вне scope
+
+- Хранение картинок в БД / file_id.
+- Перегенерация плаката по кнопке.
+- Покартиночный вкл/выкл по источникам.
+- Кастомизация стиля плаката из чата.
