@@ -265,9 +265,10 @@ async def generate_and_send_digest(
     content = _truncate_html(content)
 
     # Плакат публикуется НАД текстом дайджеста, если сгенерирован
+    poster_message = None
     if poster:
         try:
-            await bot.send_photo(
+            poster_message = await bot.send_photo(
                 chat_id,
                 BufferedInputFile(poster, filename=f"poster.{settings.image_output_format}"),
             )
@@ -282,6 +283,12 @@ async def generate_and_send_digest(
         )
     except Exception:
         logger.exception("Failed to send digest to chat %d", chat_id)
+        # Не оставляем плакат-сироту без сопровождающего дайджеста
+        if poster_message:
+            try:
+                await bot.delete_message(chat_id, poster_message.message_id)
+            except Exception:
+                logger.warning("Could not delete orphaned poster in chat %d", chat_id)
         if progress_message:
             await progress_message.edit_text("❌ Не удалось отправить дайджест.")
         return

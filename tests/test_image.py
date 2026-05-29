@@ -1,3 +1,4 @@
+import asyncio
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from bot.services.image import (
@@ -77,3 +78,22 @@ async def test_generate_poster_failure_returns_none(mock_sleep, mock_run):
     assert result is None
     assert mock_run.await_count == 2  # _IMAGE_RETRIES
     mock_sleep.assert_awaited_once()
+
+
+@patch("bot.services.image.replicate.async_run")
+async def test_generate_poster_times_out_returns_none(mock_run):
+    """Зависшее предсказание Replicate не должно вешать генерацию навсегда."""
+
+    async def _hang(*args, **kwargs):
+        await asyncio.sleep(10)  # дольше, чем патченный таймаут
+
+    mock_run.side_effect = _hang
+
+    with (
+        patch("bot.services.image._IMAGE_TIMEOUT", 0.05),
+        patch("bot.services.image._IMAGE_RETRY_DELAY", 0),
+    ):
+        result = await generate_poster("a funny poster")
+
+    assert result is None
+    assert mock_run.call_count == 2  # обе попытки упёрлись в таймаут

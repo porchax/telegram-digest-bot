@@ -75,6 +75,9 @@ async def build_image_prompt(data: dict, source_type: str = "group") -> str:
 # Картинка дорогая и долгая — мягкий retry без агрессивного backoff
 _IMAGE_RETRIES = 2
 _IMAGE_RETRY_DELAY = 5  # seconds
+# Жёсткий потолок на одну попытку: ~2 мин генерация + запас на скачивание.
+# Защита от зависшего на стороне Replicate предсказания (async_run поллит без таймаута).
+_IMAGE_TIMEOUT = 240  # seconds
 
 
 async def generate_poster(prompt: str) -> bytes | None:
@@ -82,13 +85,16 @@ async def generate_poster(prompt: str) -> bytes | None:
     last_error: Exception | None = None
     for attempt in range(_IMAGE_RETRIES):
         try:
-            output = await replicate.async_run(
-                settings.image_model,
-                input={
-                    "prompt": prompt,
-                    "quality": settings.image_quality,
-                    "output_format": settings.image_output_format,
-                },
+            output = await asyncio.wait_for(
+                replicate.async_run(
+                    settings.image_model,
+                    input={
+                        "prompt": prompt,
+                        "quality": settings.image_quality,
+                        "output_format": settings.image_output_format,
+                    },
+                ),
+                timeout=_IMAGE_TIMEOUT,
             )
             # gpt-image-2 может вернуть один FileOutput или список
             file_output = output[0] if isinstance(output, list) else output
