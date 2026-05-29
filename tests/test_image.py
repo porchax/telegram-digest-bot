@@ -76,3 +76,4 @@ async def test_generate_poster_failure_returns_none(mock_sleep, mock_run):
 
     assert result is None
     assert mock_run.await_count == 2  # _IMAGE_RETRIES
+    mock_sleep.assert_awaited_once()

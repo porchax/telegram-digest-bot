@@ -3,8 +3,8 @@ import logging
 
 import replicate
 
-from bot.services.analyzer import _call_replicate
 from bot.config import settings
+from bot.services.analyzer import _call_replicate
 
 logger = logging.getLogger(__name__)
 
