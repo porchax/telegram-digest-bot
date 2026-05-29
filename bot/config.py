@@ -28,6 +28,10 @@ class Settings(BaseSettings):
     max_messages_per_prompt: int = 2000
     max_message_length: int = 500
     auto_pin_digest: bool = True
+    generate_digest_image: bool = False
+    image_model: str = "openai/gpt-image-2"
+    image_quality: str = "medium"        # low | medium | high
+    image_output_format: str = "jpeg"    # jpeg | png | webp
 
     model_config = {"env_file": ".env", "enable_decoding": False}
 
