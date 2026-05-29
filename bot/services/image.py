@@ -1,6 +1,10 @@
+import asyncio
 import logging
 
+import replicate
+
 from bot.services.analyzer import _call_replicate
+from bot.config import settings
 
 logger = logging.getLogger(__name__)
 
@@ -68,6 +72,35 @@ async def build_image_prompt(data: dict, source_type: str = "group") -> str:
     return prompt[:_MAX_PROMPT_CHARS]
 
 
-# Implemented in Task 3
+# Картинка дорогая и долгая — мягкий retry без агрессивного backoff
+_IMAGE_RETRIES = 2
+_IMAGE_RETRY_DELAY = 5  # seconds
+
+
 async def generate_poster(prompt: str) -> bytes | None:
-    raise NotImplementedError
+    """Сгенерировать плакат через gpt-image-2. Вернуть байты или None при сбое."""
+    last_error: Exception | None = None
+    for attempt in range(_IMAGE_RETRIES):
+        try:
+            output = await replicate.async_run(
+                settings.image_model,
+                input={
+                    "prompt": prompt,
+                    "quality": settings.image_quality,
+                    "output_format": settings.image_output_format,
+                },
+            )
+            # gpt-image-2 может вернуть один FileOutput или список
+            file_output = output[0] if isinstance(output, list) else output
+            return await file_output.aread()
+        except Exception as e:
+            last_error = e
+            logger.warning(
+                "Poster generation failed (attempt %d/%d): %s",
+                attempt + 1, _IMAGE_RETRIES, e,
+            )
+            if attempt < _IMAGE_RETRIES - 1:
+                await asyncio.sleep(_IMAGE_RETRY_DELAY)
+
+    logger.error("Poster generation failed after %d attempts: %s", _IMAGE_RETRIES, last_error)
+    return None

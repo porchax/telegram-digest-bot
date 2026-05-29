@@ -42,3 +42,37 @@ async def test_build_image_prompt_default_on_error(mock_call):
 async def test_build_image_prompt_default_when_no_topics():
     result = await build_image_prompt({"important_topics": [], "discussed_topics": []})
     assert result == DEFAULT_IMAGE_PROMPT
+
+
+@patch("bot.services.image.replicate.async_run", new_callable=AsyncMock)
+async def test_generate_poster_success(mock_run):
+    fake = MagicMock()
+    fake.aread = AsyncMock(return_value=b"image-bytes")
+    mock_run.return_value = fake
+
+    result = await generate_poster("a funny poster")
+
+    assert result == b"image-bytes"
+    mock_run.assert_awaited_once()
+
+
+@patch("bot.services.image.replicate.async_run", new_callable=AsyncMock)
+async def test_generate_poster_list_output(mock_run):
+    fake = MagicMock()
+    fake.aread = AsyncMock(return_value=b"img")
+    mock_run.return_value = [fake]
+
+    result = await generate_poster("a funny poster")
+
+    assert result == b"img"
+
+
+@patch("bot.services.image.replicate.async_run", new_callable=AsyncMock)
+@patch("bot.services.image.asyncio.sleep", new_callable=AsyncMock)
+async def test_generate_poster_failure_returns_none(mock_sleep, mock_run):
+    mock_run.side_effect = RuntimeError("api down")
+
+    result = await generate_poster("a funny poster")
+
+    assert result is None
+    assert mock_run.await_count == 2  # _IMAGE_RETRIES
