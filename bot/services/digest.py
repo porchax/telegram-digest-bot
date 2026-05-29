@@ -217,6 +217,11 @@ async def generate_and_send_digest(
     source = await repo.get_source_by_telegram_id(chat_id)
     if not source:
         logger.warning("No source found for chat %d", chat_id)
+        if progress_message:
+            await progress_message.edit_text(
+                "⚠️ Этот чат ещё не отслеживается — данных пока нет.\n"
+                "Напишите несколько сообщений и попробуйте позже."
+            )
         return
 
     now = datetime.now(UTC)

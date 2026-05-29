@@ -352,3 +352,18 @@ async def test_orphaned_poster_deleted_when_digest_text_fails(
     bot.send_message.assert_awaited_once()
     # плакат удалён по его message_id
     bot.delete_message.assert_awaited_once_with(source.telegram_id, 777)
+
+
+@patch("bot.services.digest.analyze_messages", new_callable=AsyncMock)
+async def test_digest_no_source_clears_progress(mock_analyze):
+    """Ранний выход «нет источника» должен сбросить прогресс, а не висеть на «⏳»."""
+    bot = AsyncMock()
+    progress = AsyncMock()
+
+    # источник для этого chat_id не заведён (свежая БД в conftest)
+    await digest_mod.generate_and_send_digest(bot, -999999, progress_message=progress)
+
+    progress.edit_text.assert_awaited_once()
+    bot.send_message.assert_not_called()
+    bot.send_photo.assert_not_called()
+    mock_analyze.assert_not_called()
